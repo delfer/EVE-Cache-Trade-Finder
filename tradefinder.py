@@ -9,31 +9,45 @@ import time
 from reverence import blue
 from bottle import route, request, run
 from collections import deque
+from ConfigParser import SafeConfigParser
 import textwrap
 import data
 import eveapi
+import os
+import sys
+import glob
 
-EVEROOT = 'C:\Program Files (x86)\CCP\EVE'
+#loading configuration from config.ini
+cfg_parser = SafeConfigParser()
+cfg_parser.read('config.ini')
+
+#EVE Online root filder
+EVEROOT = cfg_parser.get('EVE', 'root')
 
 eve = blue.EVE(EVEROOT)
 cfg = eve.getconfigmgr()
 cachemgr = eve.getcachemgr()
 
-API_KEYID = 123456
-API_VCODE = "longalphanumericapiverificationcodegoeshere"
+#API Key & Verification Code
+API_KEYID = cfg_parser.get('API', 'key')
+API_VCODE = cfg_parser.get('API', 'vcode')
 
 api = eveapi.EVEAPIConnection()
 auth = api.auth(keyID=API_KEYID, vCode=API_VCODE)
 
 # initial configuration
-profitlimit = 1000000 # ISK
-timelimit = 24        # hours
-cargolimit = 1000     # m3
-accounting = 0        # accounting skill level
-sortby = 0            # selected sort option, see list below
+profitlimit = cfg_parser.getint('DEFAULTS', 'profitlimit')
+timelimit = cfg_parser.getint('DEFAULTS', 'timelimit')
+cargolimit = cfg_parser.getint('DEFAULTS', 'cargolimit')
+accounting = cfg_parser.getint('DEFAULTS', 'accounting')
+sortby = cfg_parser.getint('DEFAULTS', 'sortby')
+maxto = cfg_parser.getint('DEFAULTS', 'maxto')
 
-SORTSTRINGS = ['Trip profit', 'Total profit', 'Jump profit']
-RESULTLIMIT = 100     # limit for total number of results
+SORTSTRINGS = ['Trip profit', 'Potential profit', 'Jump profit']
+RESULTLIMIT = cfg_parser.getint('DEFAULTS', 'RESULTLIMIT')
+
+#server conf
+serverport = cfg_parser.getint('SERVER', 'serverport')
 
 def real_age(t):
     '''Time since an EVE timestamp in hours'''
@@ -76,10 +90,12 @@ def path_length(path):
 
 def index_market(timelimit=timelimit):
     '''Index sell and buy data'''
-    cmc = cachemgr.LoadCacheFolder('CachedMethodCalls')
+    print cachemgr.GetCacheFileName ('GetOrders')
+    cmc = cachemgr.LoadCacheFolder(cachemgr.machocachepath + '\\CachedMethodCalls')
     sell = {}
     buy = {}
     for key, obj in cmc.iteritems():
+        print key[1]
         if key[1] == 'GetOrders' and real_age(obj['version'][0]) < timelimit:
             # 0 = sell orders, 1 = buy orders
             for row in obj['lret'][0]:
@@ -159,9 +175,11 @@ headend = '</head>'
 @route('/')
 def index():
     '''Main page; Trade finder'''
-    global profitlimit, timelimit, cargolimit, accounting, sortby
+    global profitlimit, timelimit, cargolimit, accounting, sortby, hiseconly, maxto
 
     # set user variables from url string
+    hiseconly = int(request.query.hisec or 0)
+    maxto = int(request.query.maxto or maxto)
     profitlimit = int(request.query.profitlimit or profitlimit)
     timelimit = int(request.query.timelimit or timelimit)
     cargolimit = int(request.query.cargolimit or cargolimit)
@@ -174,14 +192,14 @@ def index():
     output = head % 'Trade finder' + headend
     # settings section
     output += textwrap.dedent('''
-        <body>
+        <body onLoad="CCPEVE.requestTrust('http://localhost:%i/')">
         <div id="links">
         <span id="current">Trade finder</span>
         <a href="/scan">Automated market scanner</a>
         <a href="/orderwatch">Order watch</a>
         </div>
-        <h1>Trade finder</h1>
-        ''')
+        <h1>Trade finder</h1>'''
+        % (serverport))
 
     if not request.headers.get('Eve-Trusted') == 'Yes':
         output += '<script>CCPEVE.requestTrust("http://localhost")</script>'
@@ -192,14 +210,17 @@ def index():
         <label>Profit limit</label>
         <label>Cache time limit</label>
         <label>Cargo limit</label>
+        <label>Jumps to seller</label>
         <label>Accounting skill</label>
         <label>Sort by</label>
+        <label>Through HiSec only</label>
         <label>&nbsp;</label>
         </div>
         <input type="text" name="profitlimit" value="%i"> ISK<br>
         <input type="text" name="timelimit" value="%i"> hours<br>
-        <input type="text" name="cargolimit" value="%i"> m&#179;<br>''' 
-        % (profitlimit, timelimit, cargolimit))
+        <input type="text" name="cargolimit" value="%i"> m&#179;<br>
+        <input type="text" name="maxto" value="%i"> "-1" = unlimited<br>''' 
+        % (profitlimit, timelimit, cargolimit, maxto))
     
     accountingoptions = ''
     for i in range(6):
@@ -213,6 +234,8 @@ def index():
         sortoptions += ('<option value="%i"%s>%s</option>' 
                         % (i, selected, SORTSTRINGS[i]))
     
+	
+	
     output += textwrap.dedent('''
         <select name=accounting>
         %s
@@ -220,10 +243,16 @@ def index():
         <select name=sortby>
         %s
         </select><br>
-        <input type="submit" value="Reload"><br>
-        </form>
         ''' % (accountingoptions, taxlevel * 100, sortoptions))
 
+    # hisec checkbox
+    if hiseconly:
+		output += "<input type=\"checkbox\" name=\"hisec\" value=\"1\" checked><br>"
+    else:
+		output += "<input type=\"checkbox\" name=\"hisec\" value=\"1\"><br>"
+		
+    output += "<input type=\"submit\" value=\"Reload\"><br></form>"
+	
     currentsystem = int(request.headers.get('Eve-SolarSystemID') or 0)
 
     # search for trades
@@ -248,9 +277,9 @@ def index():
                         tripprofit = profit
                     
                     if (len(results) < RESULTLIMIT and
-                       (sortby == 0 and tripprofit > profitlimit) or
+                       ((sortby == 0 and tripprofit > profitlimit) or
                        (sortby == 1 and profit > profitlimit) or
-                       (sortby == 2 and tripprofit > profitlimit)):
+                       (sortby == 2 and tripprofit > profitlimit))):
                         # add result to result list
                         # further calculations
                         sellsec = data.security[sellitem.solarSystemID]
@@ -268,11 +297,19 @@ def index():
                             if data.security[system] < 0.5:
                                 lowsecwarning = '<span class="X">(through lowsec)</span>'
                         
+						#ignore if we want hisec
+                        if lowsecwarning != '' and hiseconly:
+							continue;
+						
                         jumpsfromcurrent = path_length(path1)
                         jumpsfromsell = path_length(path2)
                         totaljumps = jumpsfromcurrent + jumpsfromsell
                         jumpprofit = tripprofit / (totaljumps + 1)
 
+                        #ignore if seller is far
+                        if (jumpsfromcurrent > maxto) and (maxto != -1):
+						    continue;
+						
                         smd = 'javascript:CCPEVE.showMarketDetails'
                         si = 'javascript:CCPEVE.showInfo'
 
@@ -639,4 +676,4 @@ def getorders():
 
 if __name__ == '__main__':
     # run server
-    run(host='localhost', port=80, reloader=True)
+    run(host='localhost', port=serverport, reloader=True)
