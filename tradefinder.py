@@ -40,6 +40,7 @@ accounting = cfg_parser.getint('DEFAULTS', 'accounting')
 sortby = cfg_parser.getint('DEFAULTS', 'sortby')
 maxto = cfg_parser.getint('DEFAULTS', 'maxto')
 invratio = cfg_parser.getint('DEFAULTS', 'invratio')
+scanspeed = cfg_parser.getint('DEFAULTS', 'scanspeed')
 
 SORTSTRINGS = ['Trip profit', 'Potential profit', 'Jump profit']
 RESULTLIMIT = cfg_parser.getint('DEFAULTS', 'RESULTLIMIT')
@@ -188,15 +189,23 @@ def index():
 
     output = head % 'Trade finder' + headend
     # settings section
+    if serverport == 80:
+        output += textwrap.dedent('''
+        <body onLoad="CCPEVE.requestTrust('http://localhost/')">'''
+        )
+    else:
+        output += textwrap.dedent('''
+        <body onLoad="CCPEVE.requestTrust('http://localhost:%i/')">'''
+        % (serverport))
+    
     output += textwrap.dedent('''
-        <body onLoad="CCPEVE.requestTrust('http://localhost:%i/')">
         <div id="links">
         <span id="current">Trade finder</span>
         <a href="/scan">Automated market scanner</a>
         <a href="/orderwatch">Order watch</a>
         </div>
         <h1>Trade finder</h1>'''
-        % (serverport))
+        )
 
     if not request.headers.get('Eve-Trusted') == 'Yes':
         output += '<script>CCPEVE.requestTrust("http://localhost")</script>'
@@ -396,14 +405,14 @@ for invtype in cfg.invtypes:
 
 # header javascript for market scanner
 scannerscript = '''
-<script src="http://code.jquery.com/jquery.min.js"></script>
+<script src="http://code.jquery.com/jquery-1.7.2.min.js"></script>
 <script>
     typeids = %s
     selected = []
     timers = []
     active = false
     proglength = 150
-    millis = 3000
+    millis = %i
     n = 1
 
     function loopDots() {
@@ -474,7 +483,7 @@ scannerscript = '''
         $(h).text(s)
     }
 </script>
-''' % str(typeids)
+''' % (str(typeids), scanspeed)
 
 @route('/scan')
 def scan():
@@ -488,24 +497,25 @@ def scan():
             name = data.groupnames[key]
             if members:
                 if checklist:
-                    string += '<div class="checkchecker">'
+                    string += '<div class="checkchecker" style="display: none" >' if headerlevel > 2 else '<div class="checkchecker">'
                     string += '<input type="checkbox" onclick="toggleSet(this, %s)">All/none' % str(checklist)
                     string += '</div>\n'
                     checklist = []
                 floater = ' class="floater"' if headerlevel == 2 else ''
-                string += ('<div%s><h%i onclick="toggleHeader(this)">%s -</h%i>\n' 
+                floater = ' style="display: none" ' if headerlevel > 2 else ''
+                string += ('<div%s ><h%i onclick="toggleHeader(this)">%s +</h%i>\n' 
                            % (floater, headerlevel, name, headerlevel))
                 string += traversegroups(members, headerlevel+1)
                 string += '</div>\n'
             else:
                 if key in typeids.keys():
-                    string += '<div class="checker">'
+                    string += '<div class="checker" style="display: none" >' if headerlevel > 2 else '<div class="checker">'
                     string += ('<input type="checkbox" name="%i" id="c%i" onclick="toggleGroup(%i)">%s' 
                                % (key, key, key, name))
                     string += '</div>\n'
                     checklist.append(key)
         if checklist:
-            string += '<div class="checkchecker">'
+            string += '<div class="checkchecker" style="display: none" >' if headerlevel > 2 else '<div class="checkchecker">'
             string += '<input type="checkbox" onclick="toggleSet(this, %s)">All/none' % str(checklist)
             string += '</div>\n'
         return string
@@ -532,7 +542,7 @@ def scan():
 
 # header javascript for order watch
 orderscript = '''
-<script src="http://code.jquery.com/jquery.min.js"></script>
+<script src="http://code.jquery.com/jquery-1.7.2.min.js"></script>
 <script>
     scan = %s
     timers = []
