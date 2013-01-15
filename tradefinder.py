@@ -13,9 +13,6 @@ from ConfigParser import SafeConfigParser
 import textwrap
 import data
 import eveapi
-import os
-import sys
-import glob
 
 #loading configuration from config.ini
 cfg_parser = SafeConfigParser()
@@ -42,6 +39,7 @@ cargolimit = cfg_parser.getint('DEFAULTS', 'cargolimit')
 accounting = cfg_parser.getint('DEFAULTS', 'accounting')
 sortby = cfg_parser.getint('DEFAULTS', 'sortby')
 maxto = cfg_parser.getint('DEFAULTS', 'maxto')
+invratio = cfg_parser.getint('DEFAULTS', 'invratio')
 
 SORTSTRINGS = ['Trip profit', 'Potential profit', 'Jump profit']
 RESULTLIMIT = cfg_parser.getint('DEFAULTS', 'RESULTLIMIT')
@@ -90,12 +88,10 @@ def path_length(path):
 
 def index_market(timelimit=timelimit):
     '''Index sell and buy data'''
-    print cachemgr.GetCacheFileName ('GetOrders')
     cmc = cachemgr.LoadCacheFolder(cachemgr.machocachepath + '\\CachedMethodCalls')
     sell = {}
     buy = {}
     for key, obj in cmc.iteritems():
-        print key[1]
         if key[1] == 'GetOrders' and real_age(obj['version'][0]) < timelimit:
             # 0 = sell orders, 1 = buy orders
             for row in obj['lret'][0]:
@@ -175,11 +171,12 @@ headend = '</head>'
 @route('/')
 def index():
     '''Main page; Trade finder'''
-    global profitlimit, timelimit, cargolimit, accounting, sortby, hiseconly, maxto
+    global profitlimit, timelimit, cargolimit, accounting, sortby, hiseconly, maxto, invratio
 
     # set user variables from url string
     hiseconly = int(request.query.hisec or 0)
     maxto = int(request.query.maxto or maxto)
+    invratio = int(request.query.invratio or invratio)
     profitlimit = int(request.query.profitlimit or profitlimit)
     timelimit = int(request.query.timelimit or timelimit)
     cargolimit = int(request.query.cargolimit or cargolimit)
@@ -211,6 +208,7 @@ def index():
         <label>Cache time limit</label>
         <label>Cargo limit</label>
         <label>Jumps to seller</label>
+        <label>Min profit ratio</label>
         <label>Accounting skill</label>
         <label>Sort by</label>
         <label>Through HiSec only</label>
@@ -219,8 +217,9 @@ def index():
         <input type="text" name="profitlimit" value="%i"> ISK<br>
         <input type="text" name="timelimit" value="%i"> hours<br>
         <input type="text" name="cargolimit" value="%i"> m&#179;<br>
-        <input type="text" name="maxto" value="%i"> "-1" = unlimited<br>''' 
-        % (profitlimit, timelimit, cargolimit, maxto))
+        <input type="text" name="maxto" value="%i"> "-1" = unlimited<br>
+        <input type="text" name="invratio" value="%i"> &#037; "-1" = unlimited<br>'''
+        % (profitlimit, timelimit, cargolimit, maxto, invratio))
     
     accountingoptions = ''
     for i in range(6):
@@ -273,6 +272,10 @@ def index():
                     tax = tradable * buyitem.price * taxlevel
                     profit = (tradable * diff) - tax
 
+                    #ignore if not in rate limit
+                    if ((tripprofit/investment)*100 < invratio) and (invratio != -1):
+					   continue;
+                    
                     if sellitem.stationID == buyitem.stationID:
                         tripprofit = profit
                     
@@ -309,7 +312,7 @@ def index():
                         #ignore if seller is far
                         if (jumpsfromcurrent > maxto) and (maxto != -1):
 						    continue;
-						
+                        
                         smd = 'javascript:CCPEVE.showMarketDetails'
                         si = 'javascript:CCPEVE.showInfo'
 
@@ -329,6 +332,7 @@ def index():
                             <label>Total tax:</label>
                             <label>Profit per jump:</label>
                             <label>Profit per trip:</label>
+                            <label>Profit ratio:</label>
                             <label>Potential profit:</label>
                             </div>
                             ''')
@@ -362,6 +366,8 @@ def index():
                                    % isk_string(jumpprofit))
                         result += ('<span class="total">%s</span> <br>\n'
                                    % isk_string(tripprofit))
+                        result += ('<span class="total">%f &#037;</span> <br>\n'
+                                   % ((tripprofit/investment)*100))
                         result += ('<span class="total">%s</span> <br>\n'
                                    % isk_string(profit))
                         result += '</div> <br>\n'
