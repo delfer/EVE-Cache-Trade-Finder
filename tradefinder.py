@@ -281,6 +281,10 @@ def index():
                     tax = tradable * buyitem.price * taxlevel
                     profit = (tradable * diff) - tax
 
+                    #ingnore if buyer want more than available from seller
+                    if (buyitem.minVolume > sellitem.volRemaining):
+                        continue;
+                       
                     #ignore if not in rate limit
                     if ((tripprofit/investment)*100 < invratio) and (invratio != -1):
 					   continue;
@@ -335,6 +339,7 @@ def index():
                             <label>Jumps:</label>
                             <label>Units tradable:</label>
                             <label>Units per trip:</label>
+                            <label>Minimum units for buyer:</label>
                             <label>Sell price:</label>
                             <label>Buy price:</label>
                             <label>Investment:</label>
@@ -363,6 +368,8 @@ def index():
                                    % (tradable, sellitem.volRemaining, buyitem.volRemaining))
                         result += ('<span>%i (%.2f m&#179; each)</span> <br>\n'
                                    % (movable, item.volume))
+                        result += ('<span>%i ( > 1 - potential fraud)</span> <br>\n'
+                                   % (buyitem.minVolume))           
                         result += ('<span>%s</span> <br>\n'
                                    % isk_string(sellitem.price))
                         result += ('<span>%s</span> <br>\n'
