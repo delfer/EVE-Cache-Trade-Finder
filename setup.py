@@ -1,4 +1,4 @@
 from distutils.core import setup
 import py2exe
 
-setup(console=['tradefinder.py'])
+setup(console=['tradefinder.py'], options={"py2exe": {"includes": ["reverence.*"]}})
